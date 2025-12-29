@@ -44,35 +44,28 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
   const handleStart = () => {
     let cleanCookie = cookie.trim();
     
-    // Split by tab OR multiple spaces (handles different browser copy behaviors)
-    const parts = cleanCookie.split(/[\t\s]{2,}/);
+    // Attempt to split by common DevTools separators (tabs)
+    const parts = cleanCookie.split('\t');
     
-    if (parts.length > 1) {
-      // Look for 'identity' name or just take the most likely candidate (the long random string)
-      const identityIdx = parts.findIndex(p => p.toLowerCase() === 'identity');
-      if (identityIdx !== -1 && parts[identityIdx + 1]) {
-        cleanCookie = parts[identityIdx + 1];
+    if (parts.length > 2) {
+      // If 'identity' is at index 0, index 1 is usually the value
+      if (parts[0].toLowerCase() === 'identity') {
+        cleanCookie = parts[1];
       } else {
-        // Fallback: search for the part that looks like a token (long, includes base64 chars)
-        const tokenPart = parts.find(p => p.length > 20 && (p.includes('%') || p.includes('=')));
-        if (tokenPart) cleanCookie = tokenPart;
+        // Look for the part that contains the JSON metadata (id, ex) which signals the value column
+        const valueIndex = parts.findIndex(p => p.includes('%7B%22id%22') || p.includes('{"id"'));
+        if (valueIndex !== -1) {
+          cleanCookie = parts[valueIndex];
+        }
       }
     } 
     // Handle 'identity=...' format
-    else if (cleanCookie.toLowerCase().includes('identity')) {
-      const matches = cleanCookie.match(/identity[=:\s]+([^;]+)/i);
-      if (matches && matches[1]) {
-        cleanCookie = matches[1].trim();
-      }
+    else if (cleanCookie.toLowerCase().includes('identity=')) {
+      cleanCookie = cleanCookie.split('identity=')[1].split(';')[0].trim();
     }
 
-    // Very important: Bandcamp cookies often copied from DevTools are already URL-encoded.
-    // We want the RAW value for the Cookie header proxy.
-    // If it contains %09 (encoded tab), we should keep it as-is OR decode it?
-    // Actually, Bandcamp's server handles the identity cookie which is token + tab + metadata.
-    // If we send it exactly as it appears in the Value column of DevTools, it usually works.
-
     if (cleanCookie) {
+      console.log('Sending cookie length:', cleanCookie.length);
       onStart(cleanCookie);
     }
   };
