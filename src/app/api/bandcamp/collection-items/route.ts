@@ -1,5 +1,27 @@
 import { NextResponse } from 'next/server';
-import puppeteer from 'puppeteer';
+
+// Handle puppeteer differently for Vercel vs Local
+const getBrowser = async () => {
+  if (process.env.VERCEL_ENV || process.env.NODE_ENV === 'production') {
+    // Vercel / Production
+    const chromium = await import('@sparticuz/chromium').then(mod => mod.default);
+    const puppeteerCore = await import('puppeteer-core').then(mod => mod.default);
+    
+    return puppeteerCore.launch({
+      args: chromium.args,
+      defaultViewport: { width: 1280, height: 800 },
+      executablePath: await chromium.executablePath(),
+      headless: true, // chromium.headless sometimes exists, but true is safe
+    });
+  } else {
+    // Local development
+    const puppeteer = await import('puppeteer').then(mod => mod.default);
+    return puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+  }
+};
 
 /**
  * Scrapes the user's Bandcamp collection page (and supplemental API endpoints)
@@ -34,10 +56,7 @@ export async function POST(request: Request) {
 
     console.log(`[Collection] Launching browser for: ${profileUrl}`);
 
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+    browser = await getBrowser();
 
     const page = await browser.newPage();
 
