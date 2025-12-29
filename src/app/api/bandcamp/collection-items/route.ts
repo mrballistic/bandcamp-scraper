@@ -31,128 +31,77 @@ export async function POST(request: Request) {
 
     const page = await browser.newPage();
 
-    // Parse and set cookies
-    const cookieParts = identityCookie.split(';').map((c: string) => c.trim());
-    const cookies = [];
-    
-    for (const part of cookieParts) {
-      if (!part.includes('=')) continue;
-      
-      const [name, ...valueParts] = part.split('=');
-      const value = valueParts.join('=').trim();
-      
-      if (name && value) {
-        cookies.push({
-          name: name.trim(),
-          value: value,
-          domain: '.bandcamp.com',
-          path: '/',
-          httpOnly: false,
-          secure: true,
-          sameSite: 'Lax' as const,
-        });
-      }
-    }
-
-    console.log(`[Collection] Setting ${cookies.length} cookies...`);
-    await page.setCookie(...cookies);
+    // Set the Cookie header directly (easier than parsing the complex identity cookie)
+    console.log('[Collection] Setting cookie header...');
+    await page.setExtraHTTPHeaders({
+      'Cookie': identityCookie,
+    });
 
     console.log('[Collection] Navigating to profile page...');
     await page.goto(profileUrl, { waitUntil: 'networkidle0', timeout: 30000 });
 
-    // Check if there's a "show all" or "view all" button
-    console.log('[Collection] Looking for "show all" button...');
+    // Check if there's a "show more" button
+    console.log('[Collection] Looking for "show more" button...');
     
     try {
-      // Common selectors for the "show all" button on Bandcamp
-      const showAllButton = await page.waitForSelector(
-        'button.show-all, a.show-all, .collection-grid .show-all, button:has-text("show"), button:has-text("all")',
-        { timeout: 5000 }
-      );
+      const showMoreButton = await page.waitForSelector('button.show-more', { timeout: 5000 });
       
-      if (showAllButton) {
-        console.log('[Collection] Clicking "show all" button...');
-        await showAllButton.click();
+      if (showMoreButton) {
+        console.log('[Collection] Clicking "show more" button...');
+        await showMoreButton.click();
         
         // Wait for the page to load more items
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await page.waitForNetworkIdle({ timeout: 10000 });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log('[Collection] Waiting for network to settle...');
+        await page.waitForNetworkIdle({ timeout: 15000 });
+        console.log('[Collection] All items should now be loaded');
       }
     } catch {
-      console.log('[Collection] No "show all" button found or already showing all items');
+      console.log('[Collection] No "show more" button found or already showing all items');
     }
 
-    // Extract the data blob from the page
-    console.log('[Collection] Extracting data blob...');
+    // Extract items directly from the DOM instead of data-blob
+    console.log('[Collection] Extracting items from DOM...');
     
-    const dataBlob = await page.evaluate(() => {
-      const script = document.querySelector('div[data-blob]');
-      if (script) {
-        return script.getAttribute('data-blob');
-      }
-      return null;
-    });
-
-    if (!dataBlob) {
-      throw new Error('Could not find data-blob in page');
-    }
-
-    const blob = JSON.parse(dataBlob.replace(/&quot;/g, '"'));
-    console.log('[Collection] Blob keys:', Object.keys(blob));
-
-    let items: Record<string, unknown>[] = [];
-    const tracklists: Record<string, unknown> = blob.tracklists || {};
-
-    // First try item_cache.collection (most reliable after "show all")
-    if (blob.item_cache?.collection) {
-      const rawItems = Object.values(blob.item_cache.collection);
+    const items = await page.evaluate(() => {
+      const itemElements = document.querySelectorAll('.collection-item-container');
+      console.log(`Found ${itemElements.length} item elements in DOM`);
       
-      items = rawItems.map((rawItem) => {
-        const item = rawItem as Record<string, unknown>;
-        const artId = item.item_art_id || item.band_image_id;
+      return Array.from(itemElements).map((el) => {
+        const titleEl = el.querySelector('.collection-item-title');
+        const artistEl = el.querySelector('.collection-item-artist');
+        const artEl = el.querySelector('.collection-item-art img, .collection-item-art');
+        const linkEl = el.querySelector('a[href]');
+        
+        // Extract art ID from image src or background-image
+        let artId = '';
+        if (artEl) {
+          const imgSrc = artEl.getAttribute('src') || (artEl as HTMLElement).style.backgroundImage;
+          const match = imgSrc?.match(/\/a(\d+)_/);
+          if (match) artId = match[1];
+        }
         
         return {
-          ...item,
+          item_id: el.getAttribute('data-itemid') || '',
+          item_title: titleEl?.textContent?.trim() || '',
+          band_name: artistEl?.textContent?.trim() || '',
+          item_url: linkEl?.getAttribute('href') || '',
+          item_art_id: artId,
           art_id: artId,
           item_art_url: artId ? `https://f4.bcbits.com/img/a${artId}_10.jpg` : '',
+          purchased: el.getAttribute('data-purchased') || '',
+          item_type: el.getAttribute('data-itemtype') || 'a',
         };
       });
-      
-      console.log(`[Collection] Found ${items.length} items in item_cache.collection`);
-    }
+    });
 
-    // Fallback: Try collection_data.redownload_urls
-    if (items.length === 0 && blob.collection_data?.redownload_urls) {
-      const redownloadData = blob.collection_data.redownload_urls;
-      
-      items = Object.entries(redownloadData).map(([saleItemId, itemData]) => {
-        const item = itemData as Record<string, unknown>;
-        const artId = item.art_id || item.item_art_id;
-        const artUrl = artId ? `https://f4.bcbits.com/img/a${artId}_10.jpg` : '';
-        
-        return {
-          sale_item_id: item.sale_item_id || saleItemId,
-          sale_item_type: item.sale_item_type || 'a',
-          item_title: item.title || item.item_title || '',
-          item_url: item.url || item.item_url || '',
-          band_name: item.band_name || '',
-          art_id: artId,
-          item_art_url: artUrl,
-          purchased: item.purchased || '',
-          ...item
-        };
-      });
-      
-      console.log(`[Collection] Found ${items.length} items in redownload_urls`);
-    }
-
-    console.log(`[Collection] Final count: ${items.length} items`);
+    console.log(`[Collection] Extracted ${items.length} items from DOM`);
 
     return NextResponse.json({
       items: items,
       moreAvailable: false,
       nextOlderThanToken: null,
-      tracklists: tracklists,
+      tracklists: {},
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
