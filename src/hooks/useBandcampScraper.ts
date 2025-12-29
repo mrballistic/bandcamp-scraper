@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { PurchaseRow, ScrapeProgress } from '../types/bandcamp';
 import { normalizeItem, deduplicateRows } from '../services/bandcamp.service';
 
@@ -9,6 +9,27 @@ export function useBandcampScraper() {
     itemsFetched: 0,
     pagesFetched: 0,
   });
+
+  // Load initial data from persistence
+  useEffect(() => {
+    const saved = localStorage.getItem('bc_scraper_rows');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setRows(parsed);
+        setProgress(prev => ({ ...prev, status: 'completed', itemsFetched: parsed.length }));
+      } catch (e) {
+        console.error('Failed to load saved data:', e);
+      }
+    }
+  }, []);
+
+  // Save data to persistence
+  useEffect(() => {
+    if (rows.length > 0) {
+      localStorage.setItem('bc_scraper_rows', JSON.stringify(rows));
+    }
+  }, [rows]);
 
   const startScrape = useCallback(async (identityCookie: string) => {
     setProgress({ status: 'scraping', itemsFetched: 0, pagesFetched: 0 });
@@ -23,6 +44,10 @@ export function useBandcampScraper() {
       });
 
       const summaryData = await summaryRes.json();
+
+      if (summaryRes.status === 401) {
+        throw new Error('Your Identity cookie is invalid or has expired. Please log in to Bandcamp and get a fresh cookie.');
+      }
 
       if (!summaryRes.ok) {
         throw new Error(summaryData.error || 'Failed to authenticate');
@@ -69,6 +94,44 @@ export function useBandcampScraper() {
         if (pageCount > 500) break; 
       }
 
+      // 3. Optional pass for Hidden Items
+      moreAvailable = true;
+      olderThanToken = null;
+
+      while (moreAvailable) {
+        const hiddenRes: Response = await fetch('/api/bandcamp/hidden-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identityCookie, fanId, olderThanToken, count: 50 }),
+        });
+
+        const data = await hiddenRes.json();
+
+        if (!hiddenRes.ok) {
+          // If hidden items fail, we don't necessarily want to crash the whole thing
+          console.error('Failed to fetch hidden items:', data.error);
+          break;
+        }
+
+        if (!data.items || data.items.length === 0) break;
+
+        const newRows = data.items.map(normalizeItem);
+        allRows = [...allRows, ...newRows];
+        pageCount++;
+
+        setRows(deduplicateRows([...allRows]));
+        setProgress((prev) => ({
+          ...prev,
+          itemsFetched: allRows.length,
+          pagesFetched: pageCount,
+        }));
+
+        moreAvailable = data.moreAvailable;
+        olderThanToken = data.nextOlderThanToken;
+        
+        if (pageCount > 1000) break; // Extended safety break
+      }
+
       setProgress((prev) => ({ ...prev, status: 'completed' }));
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
@@ -84,6 +147,7 @@ export function useBandcampScraper() {
   const reset = useCallback(() => {
     setRows([]);
     setProgress({ status: 'idle', itemsFetched: 0, pagesFetched: 0 });
+    localStorage.removeItem('bc_scraper_rows');
   }, []);
 
   return { rows, progress, startScrape, reset };

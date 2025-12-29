@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bandcamp Purchases Exporter
 
-## Getting Started
+A lightweight web application built with **Next.js**, **Material UI (MUI)**, and **Lucide Icons** that allows you to scrape, review, and export your Bandcamp purchase history.
 
-First, run the development server:
+## 🚀 Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Auth via Cookie**: No password required. Uses your Bandcamp `identity` cookie to securely proxy requests.
+- **Progressive Scraping**: Fetches your collection page-by-page, allowing you to see results as they come in.
+- **Smart Preorder Detection**: Automatically flags items that are preorders and identifies if they are still unreleased.
+- **High-Res Previews**: A detailed side drawer shows high-resolution album art and raw metadata for every item.
+- **Local Persistence**: Saves your scraped data to browser storage so you don't lose your work on refresh.
+- **Multi-Format Export**: Export your collection to **CSV** (for spreadsheets) or **JSON** (full metadata).
+- **MUI X Data Grid**: Powerful table view with sorting, filtering, and quick search capabilities.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## 🛠 Getting Started
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Prerequisites
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Node.js 18+
+- A Bandcamp account with purchases
 
-## Learn More
+### Local Development
 
-To learn more about Next.js, take a look at the following resources:
+1. **Install dependencies**:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   ```bash
+   npm install
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. **Run the development server**:
 
-## Deploy on Vercel
+   ```bash
+   npm run dev
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+3. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🍪 How to get your Identity Cookie
+
+To scrape your collection, this app needs your Bandcamp `identity` cookie. This cookie is used only for the current session and is never stored on any server.
+
+1. Go to [bandcamp.com](https://bandcamp.com) and log in.
+2. Open your browser's **Developer Tools** (F12 or Right Click > Inspect).
+3. Go to the **Application** tab (Chrome/Edge) or **Storage** tab (Firefox).
+4. In the sidebar, under **Cookies**, select `https://bandcamp.com`.
+5. Find the cookie named `identity`.
+6. Double-click its **Value**, copy it, and paste it into the app.
+
+## 📝 Project Structure
+
+- `/src/app/api`: Next.js Route Handlers for proxying Bandcamp endpoints.
+- `/src/hooks`: Custom hooks like `useBandcampScraper` for core logic.
+- `/src/components`: UI components (ReviewTable, ScrapeControls, etc.).
+- `/src/services`: Utility functions for data normalization and deduplication.
+- `/src/types`: TypeScript interfaces reflecting Bandcamp's API and our internal data model.
+
+## 🛡 Privacy
+
+- **No Passwords**: We never ask for your password.
+- **No Server Storage**: Your identity cookie is held only in memory and sent over HTTPS to proxy routes. It is never logged or stored.
+- **Local Data Only**: Your scraped purchase data is stored in your own browser's `localStorage`.
+
+## ⚖ License
+
+MIT
