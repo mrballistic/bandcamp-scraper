@@ -7,11 +7,14 @@ const getBrowser = async () => {
     const chromium = await import('@sparticuz/chromium').then(mod => mod.default);
     const puppeteerCore = await import('puppeteer-core').then(mod => mod.default);
     
+    // Optional: Graphics mode can sometimes cause issues in serverless
+    chromium.setGraphicsMode = false;
+    
     return puppeteerCore.launch({
-      args: chromium.args,
+      args: [...chromium.args, '--font-render-hinting=none'],
       defaultViewport: { width: 1280, height: 800 },
       executablePath: await chromium.executablePath(),
-      headless: true, // chromium.headless sometimes exists, but true is safe
+      headless: true,
     });
   } else {
     // Local development
