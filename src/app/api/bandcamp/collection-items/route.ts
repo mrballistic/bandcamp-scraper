@@ -32,8 +32,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Could not find collection data in page' }, { status: 500 });
     }
 
-    let items: any[] = [];
-    let tracklists: any = {};
+    let items: Record<string, unknown>[] = [];
+    let tracklists: Record<string, unknown> = {};
     
     try {
       const blobStr = blobMatch[1].replace(/&quot;/g, '"');
