@@ -18,6 +18,7 @@ import {
   Divider,
   Button
 } from '@mui/material';
+import Image from 'next/image';
 import { X, ExternalLink } from 'lucide-react';
 
 
@@ -43,11 +44,16 @@ export default function ReviewTable({ rows, loading }: ReviewTableProps) {
       renderCell: (params: GridRenderCellParams<PurchaseRow>) => (
         <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
           {params.value && params.value !== '/no-art.png' ? (
-            <img
-              src={params.value as string}
-              alt="Cover"
-              style={{ width: 40, height: 40, borderRadius: 4 }}
-            />
+            <Box sx={{ position: 'relative', width: 40, height: 40, overflow: 'hidden', borderRadius: 1 }}>
+              <Image
+                src={params.value as string}
+                alt="Cover"
+                fill
+                style={{ objectFit: 'cover' }}
+                sizes="40px"
+                unoptimized
+              />
+            </Box>
           ) : (
              <Box sx={{ width: 40, height: 40, bgcolor: 'grey.800', borderRadius: 4 }} />
           )}
@@ -162,23 +168,14 @@ export default function ReviewTable({ rows, loading }: ReviewTableProps) {
               </IconButton>
             </Box>
 
-            <Box sx={{ position: 'relative', width: '100%', pt: '100%', mb: 3 }}>
-              <img 
-                src={selectedRow.artUrl.replace('_10.jpg', '_16.jpg')} // Try to show larger image
+            <Box sx={{ position: 'relative', width: '100%', pt: '100%', mb: 3, borderRadius: 2, overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+              <Image
+                src={selectedRow.artUrl.replace('_10.jpg', '_16.jpg')}
                 alt={selectedRow.title}
-                style={{ 
-                  position: 'absolute', 
-                  top: 0, 
-                  left: 0, 
-                  width: '100%', 
-                  height: '100%', 
-                  objectFit: 'cover',
-                  borderRadius: 8,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = selectedRow.artUrl;
-                }}
+                fill
+                style={{ objectFit: 'cover' }}
+                sizes="400px"
+                unoptimized
               />
             </Box>
 

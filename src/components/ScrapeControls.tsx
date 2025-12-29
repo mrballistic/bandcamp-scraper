@@ -44,28 +44,37 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
   const handleStart = () => {
     let cleanCookie = cookie.trim();
     
-    // Attempt to split by common DevTools separators (tabs)
-    const parts = cleanCookie.split('\t');
-    
-    if (parts.length > 2) {
-      // If 'identity' is at index 0, index 1 is usually the value
-      if (parts[0].toLowerCase() === 'identity') {
-        cleanCookie = parts[1];
+    // If it's a raw cookie header (name1=val1; name2=val2), keep it as is
+    if (cleanCookie.includes('=') && cleanCookie.includes(';')) {
+      // Just pass the whole thing
+    } else {
+      // Search the entire string for identity and session components
+      const identityMatch = cleanCookie.match(/identity\t([^\t\n\r]+)/i) || cleanCookie.match(/identity=([^;]+)/i);
+      const sessionMatch = cleanCookie.match(/session\t([^\t\n\r]+)/i) || cleanCookie.match(/session=([^;]+)/i);
+      
+      let finalCookie = '';
+      if (identityMatch) {
+        finalCookie += `identity=${identityMatch[1].trim()}; `;
+      }
+      if (sessionMatch) {
+        finalCookie += `session=${sessionMatch[1].trim()}; `;
+      }
+
+      // If we found specific parts, use them. Otherwise, fall back to the original logic
+      if (finalCookie) {
+        cleanCookie = finalCookie.trim();
       } else {
-        // Look for the part that contains the JSON metadata (id, ex) which signals the value column
-        const valueIndex = parts.findIndex(p => p.includes('%7B%22id%22') || p.includes('{"id"'));
-        if (valueIndex !== -1) {
-          cleanCookie = parts[valueIndex];
+        // ... existing split logic for single row ...
+        const parts = cleanCookie.split('\t');
+        if (parts.length > 2) {
+          const valueIndex = parts.findIndex(p => p.includes('%7B%22id%22') || p.includes('{"id"'));
+          if (valueIndex !== -1) cleanCookie = parts[valueIndex];
         }
       }
-    } 
-    // Handle 'identity=...' format
-    else if (cleanCookie.toLowerCase().includes('identity=')) {
-      cleanCookie = cleanCookie.split('identity=')[1].split(';')[0].trim();
     }
 
     if (cleanCookie) {
-      console.log('Sending cookie length:', cleanCookie.length);
+      console.log('Final cookie string length:', cleanCookie.length);
       onStart(cleanCookie);
     }
   };

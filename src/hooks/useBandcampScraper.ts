@@ -53,8 +53,10 @@ export function useBandcampScraper() {
         throw new Error(summaryData.error || 'Failed to authenticate');
       }
 
-      const { fanId, collectionCount, raw } = summaryData;
+      const { fanId, collectionCount, raw, cookieToUse } = summaryData;
       
+      const sessionCookie = cookieToUse || identityCookie;
+
       let allRows: PurchaseRow[] = [];
       let pageCount = 0;
       let moreAvailable = true;
@@ -69,13 +71,31 @@ export function useBandcampScraper() {
 
       // 2. Progressive Paging Loop
       while (moreAvailable) {
-        const itemsRes: Response = await fetch('/api/bandcamp/collection-items', {
+        // For the very first page, we start with a high-timestamp token 
+        // which matches how the Bandcamp website initiates a scroll fetch.
+        let currentToken = olderThanToken;
+        if (pageCount === 0 && currentToken === null) {
+          currentToken = `${Math.floor(Date.now() / 1000)}::p:1:`;
+        }
+
+        let itemsRes: Response = await fetch('/api/bandcamp/collection-items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identityCookie, fanId, olderThanToken, count: 50 }),
+          body: JSON.stringify({ identityCookie: sessionCookie, fanId, olderThanToken: currentToken, count: 50 }),
         });
 
-        const data = await itemsRes.json();
+        let data = await itemsRes.json();
+
+        // If the specific token pass returns 0 items, retry with a null token
+        if (pageCount === 0 && (!data.items || data.items.length === 0) && currentToken !== null) {
+          console.log('[Scraper] Retry first page with null token...');
+          itemsRes = await fetch('/api/bandcamp/collection-items', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identityCookie: sessionCookie, fanId, olderThanToken: null, count: 50 }),
+          });
+          data = await itemsRes.json();
+        }
 
         if (!itemsRes.ok) {
           throw new Error(data.error || `Failed to fetch items (${itemsRes.status})`);
@@ -118,7 +138,7 @@ export function useBandcampScraper() {
         const hiddenRes: Response = await fetch('/api/bandcamp/hidden-items', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identityCookie, fanId, olderThanToken, count: 50 }),
+          body: JSON.stringify({ identityCookie: sessionCookie, fanId, olderThanToken, count: 50 }),
         });
 
         const data = await hiddenRes.json();

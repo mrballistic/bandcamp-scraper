@@ -5,89 +5,122 @@ export async function POST(request: Request) {
     const { identityCookie } = await request.json();
 
     if (!identityCookie) {
-      return NextResponse.json({ error: 'Identity cookie is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Cookie is required' }, { status: 400 });
     }
 
-    let processedCookie = identityCookie;
-    // Decode if it looks like it was copied from a URL-encoded source
-    if (processedCookie.includes('%09') || processedCookie.includes('%7B')) {
+    const rawInput = identityCookie.trim();
+    console.log('[Summary] Decoding raw input of length:', rawInput.length);
+
+    // 1. PRE-DECODE: Ensure we are working with real characters (Tabs, curly braces, etc)
+    let decodedInput = rawInput;
+    if (decodedInput.includes('%')) {
       try {
-        processedCookie = decodeURIComponent(processedCookie);
-      } catch { /* ignore */ }
+        decodedInput = decodeURIComponent(decodedInput);
+      } catch { /* use original */ }
     }
 
-    console.log('[Summary] Attempting to find fan profile via primary page fetch...');
+    let idVal = '';
+    let sessVal = '';
 
-    // Strategy 1: Fetch the main page and look for the identity/fan ID
-    // This is often more reliable than the API for establishing a session
-    const homeRes = await fetch('https://bandcamp.com/', {
-      headers: {
-        'Cookie': `identity=${processedCookie}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-      redirect: 'follow'
+    // 2. SEMANTIC SPLIT: Identify which part is which
+    const parts = decodedInput.split(';');
+    parts.forEach((p: string) => {
+      const item = p.trim();
+      if (!item) return;
+
+      if (item.toLowerCase().startsWith('identity=')) {
+        idVal = item.substring(9);
+      } else if (item.toLowerCase().startsWith('session=')) {
+        sessVal = item.substring(8);
+      } else if (item.startsWith('{')) {
+        // It's a raw JSON session object
+        sessVal = item;
+      } else if (item.includes('\t') || item.includes('{"id"')) {
+        // It's the multi-column identity token
+        idVal = item;
+      } else if (item.length > 50) {
+        // Fallback for long strings
+        idVal = item;
+      }
     });
 
-    const html = await homeRes.text();
-    
-    // Attempt to extract the "fan_id" or "blob" from the page
-    // Look for data-blob or similar identity markers
+    if (!idVal) {
+       console.error('[Summary] Error: Could not isolate identity component');
+       return NextResponse.json({ error: 'Could not isolate identity part of cookie' }, { status: 400 });
+    }
+
+    // 3. IDENTIFY FAN ID (The most critical part)
     let fanId: string | null = null;
-    let username = 'Member';
     
-    // 1. Try to find the fan_id in the blob
-    const blobMatch = html.match(/data-blob="([^"]+)"/);
+    // Strategy A: Parse from identity metadata
+    try {
+      const idParts = idVal.split('\t');
+      // Token metadata is usually in the 3rd column
+      const metaStr = idParts.find(p => p.startsWith('{') && p.includes('"id"'));
+      if (metaStr) {
+        const meta = JSON.parse(metaStr);
+        if (meta.id) {
+          fanId = String(meta.id);
+          console.log(`[Summary] Found Fan ID in metadata: ${fanId}`);
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Strategy B: Regex search for the ID number
+    if (!fanId) {
+      const idMatch = idVal.match(/"id":\s*(\d+)/);
+      if (idMatch) {
+        fanId = idMatch[1];
+        console.log(`[Summary] Found Fan ID via regex: ${fanId}`);
+      }
+    }
+
+    // 4. RECONSTRUCT PROFESSIONAL HEADER
+    // Bandcamp needs: identity=[token]; session=[url-encoded-json]
+    let finalHeader = `identity=${idVal}`;
+    if (sessVal) {
+      const encodedSess = sessVal.startsWith('{') ? encodeURIComponent(sessVal) : sessVal;
+      finalHeader += `; session=${encodedSess}`;
+    }
+
+    console.log('[Summary] Reconstructed header. Fetching profile context...');
+
+    // 5. FETCH CONTEXT (Verify we're truly logged in)
+    let username = 'Member';
+    let collectionCount = 0;
+
+    const homeRes = await fetch('https://bandcamp.com/', {
+      headers: {
+        'Cookie': finalHeader,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      }
+    });
+
+    const homeHtml = await homeRes.text();
+    const blobMatch = homeHtml.match(/data-blob="([^"]+)"/);
     if (blobMatch) {
       try {
         const blob = JSON.parse(blobMatch[1].replace(/&quot;/g, '"'));
-        if (blob.fan_data && blob.fan_data.fan_id) {
-          fanId = String(blob.fan_data.fan_id);
+        if (blob.fan_data) {
+          fanId = fanId || String(blob.fan_data.fan_id);
           username = blob.fan_data.name || blob.fan_data.username || username;
-          console.log(`[Summary] Found Fan ID in blob: ${fanId}`);
+          collectionCount = blob.fan_data.collection_count || 0;
+          console.log(`[Summary] Verified Session for: ${username} (ID: ${fanId})`);
         }
       } catch { /* ignore */ }
     }
 
-    // 2. Fallback: Parse from cookie if page fetch didn't yield an ID
     if (!fanId) {
-      try {
-        const parts = processedCookie.split('\t');
-        if (parts.length >= 3) {
-          const jsonMetadata = JSON.parse(parts[2]);
-          if (jsonMetadata.id) {
-            fanId = String(jsonMetadata.id);
-            console.log(`[Summary] Fell back to Cookie Fan ID: ${fanId}`);
-          }
-        }
-      } catch { /* ignore */ }
+       console.error('[Summary] CRITICAL: Could not resolve Fan ID after all strategies');
+       return NextResponse.json({ error: 'Could not resolve Fan ID. Check your cookie format.' }, { status: 400 });
     }
-
-    // 3. Last effort: Try the API one more time with refined headers
-    let collectionCount = 0;
-    const apiRes = await fetch('https://bandcamp.com/api/fan/2/collection_summary', {
-      headers: {
-        'Cookie': `identity=${processedCookie}`,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://bandcamp.com/',
-        'Accept': 'application/json',
-      },
-    });
-
-    if (apiRes.ok) {
-      const apiData = await apiRes.json();
-      collectionCount = apiData.collection_count || 0;
-      if (!fanId) fanId = String(apiData.fan_id);
-      if (username === 'Member') username = apiData.name || apiData.username || username;
-    }
-
-    console.log(`[Summary] Final Resolution: ${username} (${fanId}) - ${collectionCount} items`);
 
     return NextResponse.json({
       fanId: fanId,
       username: username,
       name: username,
       collectionCount: collectionCount,
-      raw: { fanId, username, collectionCount }
+      cookieToUse: finalHeader
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';

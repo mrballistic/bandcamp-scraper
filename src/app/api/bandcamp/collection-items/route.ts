@@ -2,63 +2,85 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { identityCookie, fanId, olderThanToken, count = 100 } = await request.json();
+    const { identityCookie, fanId } = await request.json();
 
     if (!identityCookie || !fanId) {
-      return NextResponse.json({ error: 'Identity cookie and fan ID are required' }, { status: 400 });
+      return NextResponse.json({ error: 'Cookie and Fan ID are required' }, { status: 400 });
     }
 
-    let processedCookie = identityCookie;
-    if (processedCookie.includes('%')) {
-      try {
-        processedCookie = decodeURIComponent(processedCookie);
-      } catch { /* ignore */ }
-    }
+    console.log(`[Collection] Attempting HTML scrape for Fan ${fanId}...`);
 
-    // MANDATORY: fan_id must be a string for the modern API version
-    // AND we must provide a token. If null, we use a generic "end of time" token.
-    const body = {
-      fan_id: String(fanId),
-      older_than_token: olderThanToken || "9999999999::p::1", 
-      count: Number(count),
-    };
-
-    console.log(`[Collection] Fetching for Fan ${fanId}. Body:`, JSON.stringify(body));
-
-    const response = await fetch('https://bandcamp.com/api/fancollection/1/collection_items', {
-      method: 'POST',
+    // Strategy: Fetch the actual collection page HTML and parse the embedded JSON
+    const response = await fetch(`https://bandcamp.com/fan/${fanId}`, {
       headers: {
-        'Cookie': `identity=${processedCookie}`,
-        'Content-Type': 'application/json',
+        'Cookie': identityCookie,
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Origin': 'https://bandcamp.com',
-        'Referer': 'https://bandcamp.com/',
-        'Accept': 'application/json, text/javascript, */*; q=0.01',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin'
-      },
-      body: JSON.stringify(body),
+      }
     });
 
-    const data = await response.json();
-    
-    if (!response.ok || data.error) {
-      console.error('[Collection] Bandcamp API failure:', data);
-      return NextResponse.json({ 
-        error: data.error_message || `Bandcamp API error: ${response.status}`,
-        raw: data
-      }, { status: 200 }); // Return 200 so the UI can handle the error state gracefully
+    if (!response.ok) {
+      console.error(`[Collection] HTTP ${response.status} when fetching profile page`);
+      return NextResponse.json({ error: `Failed to fetch profile page: ${response.status}` }, { status: 500 });
     }
 
-    console.log(`[Collection] Success: ${data.items?.length || 0} items found.`);
+    const html = await response.text();
+    
+    // Look for the collection data blob in the HTML
+    const blobMatch = html.match(/data-blob="([^"]+)"/);
+    if (!blobMatch) {
+      console.error('[Collection] No data-blob found in HTML');
+      return NextResponse.json({ error: 'Could not find collection data in page' }, { status: 500 });
+    }
+
+    let items: any[] = [];
+    let tracklists: any = {};
+    
+    try {
+      const blobStr = blobMatch[1].replace(/&quot;/g, '"');
+      const blob = JSON.parse(blobStr);
+      
+      console.log('[Collection] Blob keys:', Object.keys(blob));
+      
+      if (blob.collection_data && blob.collection_data.redownload_urls) {
+        // Parse the redownload_urls which contains the collection items
+        const redownloadData = blob.collection_data.redownload_urls;
+        items = Object.keys(redownloadData).map(key => {
+          const item = redownloadData[key];
+          // Transform to match our expected format
+          return {
+            sale_item_id: item.sale_item_id || key,
+            sale_item_type: item.sale_item_type || 'a',
+            item_title: item.title || '',
+            item_url: item.url || '',
+            band_name: item.band_name || '',
+            item_art_url: item.art_url || item.art_id ? `https://f4.bcbits.com/img/a${item.art_id}_10.jpg` : '',
+            purchased: item.purchased || '',
+            ...item
+          };
+        });
+        
+        console.log(`[Collection] Successfully parsed ${items.length} items from HTML blob`);
+      } else if (blob.item_cache && blob.item_cache.collection) {
+        // Alternative structure
+        items = Object.values(blob.item_cache.collection);
+        console.log(`[Collection] Found ${items.length} items in item_cache`);
+      }
+      
+      // Look for tracklists
+      if (blob.tracklists) {
+        tracklists = blob.tracklists;
+      }
+      
+    } catch (e) {
+      console.error('[Collection] Error parsing blob:', e);
+      return NextResponse.json({ error: 'Failed to parse collection data' }, { status: 500 });
+    }
 
     return NextResponse.json({
-      items: data.items || [],
-      moreAvailable: !!data.more_available,
-      nextOlderThanToken: data.last_token || null,
-      tracklists: data.tracklists || {},
+      items: items,
+      moreAvailable: false, // HTML scrape gets everything at once
+      nextOlderThanToken: null,
+      tracklists: tracklists,
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
