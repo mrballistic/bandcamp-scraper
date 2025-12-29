@@ -53,120 +53,47 @@ export function useBandcampScraper() {
         throw new Error(summaryData.error || 'Failed to authenticate');
       }
 
-      const { fanId, collectionCount, raw, cookieToUse } = summaryData;
+      const { fanId, usernameSlug, cookieToUse } = summaryData;
       
       const sessionCookie = cookieToUse || identityCookie;
 
       let allRows: PurchaseRow[] = [];
-      let pageCount = 0;
-      let moreAvailable = true;
-      let olderThanToken = null;
 
-      // Some versions of the API provide the initial token in the summary
-      if (raw && raw.collection_data && raw.collection_data.last_token) {
-        olderThanToken = raw.collection_data.last_token;
+      console.log(`Starting HTML scrape for Fan ${fanId} (${usernameSlug || 'no slug'})...`);
+
+      // 2. Single HTML Scrape (gets all items at once)
+      const itemsRes: Response = await fetch('/api/bandcamp/collection-items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          identityCookie: sessionCookie, 
+          fanId,
+          usernameSlug 
+        }),
+      });
+
+      const data = await itemsRes.json();
+
+      if (!itemsRes.ok) {
+        throw new Error(data.error || `Failed to fetch items (${itemsRes.status})`);
       }
 
-      console.log(`Starting scrape for Fan ${fanId}. Total expected: ${collectionCount}`);
-
-      // 2. Progressive Paging Loop
-      while (moreAvailable) {
-        // For the very first page, we start with a high-timestamp token 
-        // which matches how the Bandcamp website initiates a scroll fetch.
-        let currentToken = olderThanToken;
-        if (pageCount === 0 && currentToken === null) {
-          currentToken = `${Math.floor(Date.now() / 1000)}::p:1:`;
-        }
-
-        let itemsRes: Response = await fetch('/api/bandcamp/collection-items', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identityCookie: sessionCookie, fanId, olderThanToken: currentToken, count: 50 }),
-        });
-
-        let data = await itemsRes.json();
-
-        // If the specific token pass returns 0 items, retry with a null token
-        if (pageCount === 0 && (!data.items || data.items.length === 0) && currentToken !== null) {
-          console.log('[Scraper] Retry first page with null token...');
-          itemsRes = await fetch('/api/bandcamp/collection-items', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ identityCookie: sessionCookie, fanId, olderThanToken: null, count: 50 }),
-          });
-          data = await itemsRes.json();
-        }
-
-        if (!itemsRes.ok) {
-          throw new Error(data.error || `Failed to fetch items (${itemsRes.status})`);
-        }
-
-        if (!data.items || !Array.isArray(data.items)) {
-          console.error('Unexpected items response:', data);
-          // If we have some rows, maybe just stop here instead of crashing
-          if (allRows.length > 0) {
-            break;
-          }
-          throw new Error('API returned no items. Your session might be restricted or some metadata is incorrect.');
-        }
-
-        const newRows = data.items.map(normalizeItem);
-        
-        allRows = [...allRows, ...newRows];
-        pageCount++;
-        
-        // Update state progressively
-        setRows(deduplicateRows([...allRows]));
-        setProgress((prev) => ({
-          ...prev,
-          itemsFetched: allRows.length,
-          pagesFetched: pageCount,
-        }));
-
-        moreAvailable = data.moreAvailable && data.nextOlderThanToken;
-        olderThanToken = data.nextOlderThanToken;
-
-        // Safety break
-        if (pageCount > 500) break; 
+      if (!data.items || !Array.isArray(data.items)) {
+        console.error('Unexpected items response:', data);
+        throw new Error('Could not parse collection from page. Your collection might be private.');
       }
 
-      // 3. Optional pass for Hidden Items
-      moreAvailable = true;
-      olderThanToken = null;
-
-      while (moreAvailable) {
-        const hiddenRes: Response = await fetch('/api/bandcamp/hidden-items', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identityCookie: sessionCookie, fanId, olderThanToken, count: 50 }),
-        });
-
-        const data = await hiddenRes.json();
-
-        if (!hiddenRes.ok) {
-          // If hidden items fail, we don't necessarily want to crash the whole thing
-          console.error('Failed to fetch hidden items:', data.error);
-          break;
-        }
-
-        if (!data.items || data.items.length === 0) break;
-
-        const newRows = data.items.map(normalizeItem);
-        allRows = [...allRows, ...newRows];
-        pageCount++;
-
-        setRows(deduplicateRows([...allRows]));
-        setProgress((prev) => ({
-          ...prev,
-          itemsFetched: allRows.length,
-          pagesFetched: pageCount,
-        }));
-
-        moreAvailable = data.moreAvailable;
-        olderThanToken = data.nextOlderThanToken;
-        
-        if (pageCount > 1000) break; // Extended safety break
-      }
+      console.log(`[Scraper] Found ${data.items.length} items in collection`);
+      
+      const newRows = data.items.map(normalizeItem);
+      allRows = [...allRows, ...newRows];
+      
+      setRows(deduplicateRows([...allRows]));
+      setProgress({
+        status: 'completed',
+        itemsFetched: allRows.length,
+        pagesFetched: 1,
+      });
 
       setProgress((prev) => ({ ...prev, status: 'completed' }));
     } catch (err: unknown) {

@@ -225,7 +225,7 @@ export default function ReviewTable({ rows, loading }: ReviewTableProps) {
                 variant="outlined" 
                 sx={{ 
                   p: 1.5, 
-                  bgcolor: 'grey.50', 
+                  bgcolor: 'background.default', 
                   maxHeight: 200, 
                   overflow: 'auto',
                   fontSize: '0.75rem',

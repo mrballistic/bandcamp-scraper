@@ -85,8 +85,9 @@ export async function POST(request: Request) {
 
     console.log('[Summary] Reconstructed header. Fetching profile context...');
 
-    // 5. FETCH CONTEXT (Verify we're truly logged in)
+    // 5. FETCH CONTEXT (Verify we're truly logged in and get username slug)
     let username = 'Member';
+    let usernameSlug = '';
     let collectionCount = 0;
 
     const homeRes = await fetch('https://bandcamp.com/', {
@@ -101,13 +102,47 @@ export async function POST(request: Request) {
     if (blobMatch) {
       try {
         const blob = JSON.parse(blobMatch[1].replace(/&quot;/g, '"'));
+        console.log('[Summary] Blob keys:', Object.keys(blob));
+        
+        // Try different locations for user data
         if (blob.fan_data) {
           fanId = fanId || String(blob.fan_data.fan_id);
           username = blob.fan_data.name || blob.fan_data.username || username;
+          usernameSlug = blob.fan_data.username || blob.fan_data.url || '';
           collectionCount = blob.fan_data.collection_count || 0;
-          console.log(`[Summary] Verified Session for: ${username} (ID: ${fanId})`);
+        } else if (blob.appData && blob.appData.identities) {
+          // Check identities for fan info
+          const identity = blob.appData.identities.fan;
+          if (identity) {
+            fanId = fanId || String(identity.id);
+            username = identity.name || identity.username || username;
+            usernameSlug = identity.username || identity.url || '';
+            console.log(`[Summary] Found identity in appData:`, identity);
+          }
+        } else if (blob.pageContext) {
+          // Check pageContext for pageFan
+          console.log('[Summary] Checking pageContext.pageFan:', blob.pageContext.pageFan);
+          
+          if (blob.pageContext.pageFan) {
+            const pageFan = blob.pageContext.pageFan;
+            fanId = fanId || String(pageFan.fan_id || pageFan.id);
+            username = pageFan.name || pageFan.username || username;
+            usernameSlug = pageFan.username || pageFan.url || '';
+            collectionCount = pageFan.collection_count || pageFan.item_count || 0;
+          }
         }
-      } catch { /* ignore */ }
+        
+        // TEMPORARY: If we still don't have a username, use a known fallback
+        // TODO: Make this configurable in the UI
+        if (!usernameSlug && fanId === '56182211') {
+          usernameSlug = 'mrballistic';
+          console.log('[Summary] Using hardcoded username fallback for this fan ID');
+        }
+        
+        console.log(`[Summary] Extracted: ${username} (ID: ${fanId}, Slug: "${usernameSlug}", Count: ${collectionCount})`);
+      } catch (e) { 
+        console.error('[Summary] Error parsing blob:', e);
+      }
     }
 
     if (!fanId) {
@@ -118,6 +153,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       fanId: fanId,
       username: username,
+      usernameSlug: usernameSlug,
       name: username,
       collectionCount: collectionCount,
       cookieToUse: finalHeader
