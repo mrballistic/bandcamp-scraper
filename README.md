@@ -1,16 +1,16 @@
 # Bandcamp Purchases Exporter
 
-A lightweight web application built with **Next.js**, **Material UI (MUI)**, and **Lucide Icons** that allows you to scrape, review, and export your Bandcamp purchase history.
+A powerful web application built with **Next.js**, **Material UI (MUI)**, and **Puppeteer** that allows you to scrape, review, and export your entire Bandcamp purchase history, including hidden items.
 
 ## 🚀 Features
 
-- **Auth via Cookie**: No password required. Uses your Bandcamp `identity` cookie to securely proxy requests.
-- **Progressive Scraping**: Fetches your collection page-by-page, allowing you to see results as they come in.
-- **Smart Preorder Detection**: Automatically flags items that are preorders and identifies if they are still unreleased.
-- **High-Res Previews**: A detailed side drawer shows high-resolution album art and raw metadata for every item.
-- **Local Persistence**: Saves your scraped data to browser storage so you don't lose your work on refresh.
-- **Multi-Format Export**: Export your collection to **CSV** (for spreadsheets) or **JSON** (full metadata).
-- **MUI X Data Grid**: Powerful table view with sorting, filtering, and quick search capabilities.
+- **Authenticated Scraping**: Uses **Puppeteer** (headless Chrome) to maintain a secure, authenticated session via your Bandcamp `identity` cookie.
+- **Hidden Items Support**: Automatically discovers and scrapes items you've "hidden" in your collection—no entry is left behind.
+- **Dual-Strategy Discovery**: Smart auto-discovery of your username slug from the homepage, with a manual override for faster, more reliable scraping.
+- **Accurate Metadata Extraction**: Correctly identifies purchase dates, high-resolution artwork, and preorder statuses (including unreleased vs. partially released).
+- **Multi-Format Export**: One-click export to **CSV** (includes "Hidden" flag and preorder status) or **JSON** (full raw metadata).
+- **Responsive Metadata Drawer**: Review every detail of your purchases, including raw API responses, in a beautiful, dark-mode-ready slide-out drawer.
+- **Local Persistence**: Results are saved to browser storage, ensuring you can review and export your data even after a page refresh.
 
 ## 🛠 Getting Started
 
@@ -35,24 +35,34 @@ A lightweight web application built with **Next.js**, **Material UI (MUI)**, and
 
 3. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## 🍪 How to get your Identity Cookie
+## 🧪 Testing
 
-To scrape your collection, this app needs your Bandcamp `identity` cookie. This cookie is used only for the current session and is never stored on any server.
+This project includes a comprehensive test suite using **Vitest** and **React Testing Library**, covering core hook logic, data normalization, and component interactions.
+
+### Run Tests
+
+```bash
+npm test
+```
+
+### Recent Test Results
+
+```text
+ Test Files  4 passed (4)
+      Tests  13 passed (13)
+   Duration  1.39s
+```
+
+## 🍪 Configuration
+
+To scrape your collection, this app needs your Bandcamp `identity` cookie:
 
 1. Go to [bandcamp.com](https://bandcamp.com) and log in.
 2. Open your browser's **Developer Tools** (F12 or Right Click > Inspect).
 3. Go to the **Application** tab (Chrome/Edge) or **Storage** tab (Firefox).
 4. In the sidebar, under **Cookies**, select `https://bandcamp.com`.
-5. Find the cookie named `identity`.
-6. Double-click its **Value**, copy it, and paste it into the app.
-
-## 📝 Project Structure
-
-- `/src/app/api`: Next.js Route Handlers for proxying Bandcamp endpoints.
-- `/src/hooks`: Custom hooks like `useBandcampScraper` for core logic.
-- `/src/components`: UI components (ReviewTable, ScrapeControls, etc.).
-- `/src/services`: Utility functions for data normalization and deduplication.
-- `/src/types`: TypeScript interfaces reflecting Bandcamp's API and our internal data model.
+5. Find the <code>identity</code> cookie and copy its **Value**.
+6. (Optional) Provide your **Username Slug** (e.g., `mrballistic`) to bypass auto-discovery.
 
 ## 🛡 Privacy
 
