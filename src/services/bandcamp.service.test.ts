@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { normalizeItem, deduplicateRows } from './bandcamp.service';
 import { BandcampItem, PurchaseRow } from '../types/bandcamp';
 
+/**
+ * Integration-style unit tests that exercise the item normalization and
+ * deduplication utilities. These ensure exported data stays stable even if
+ * Bandcamp subtly changes the payload shape.
+ */
 describe('bandcamp.service', () => {
   describe('normalizeItem', () => {
     it('should correctly normalize a standard album item', () => {

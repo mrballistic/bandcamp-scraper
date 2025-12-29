@@ -22,15 +22,30 @@ import Image from 'next/image';
 import { X, ExternalLink } from 'lucide-react';
 
 
+/**
+ * Properties for the review table, including normalized purchase rows and an
+ * optional loading flag that disables interactions while scraping.
+ */
 interface ReviewTableProps {
   rows: PurchaseRow[];
   loading?: boolean;
 }
 
+/**
+ * Displays the normalized purchases in an MUI data grid with filtering for
+ * unreleased preorders and a slide-out drawer that surfaces rich item details.
+ *
+ * @param rows - Normalized purchase rows to render.
+ * @param loading - Optional flag to display loading states while scraping.
+ */
 export default function ReviewTable({ rows, loading }: ReviewTableProps) {
   const [showOnlyUnreleased, setShowOnlyUnreleased] = React.useState(false);
   const [selectedRow, setSelectedRow] = React.useState<PurchaseRow | null>(null);
 
+  /**
+   * Filters the dataset to only unreleased preorders when toggled. Uses
+   * memoization to avoid recomputing on unrelated renders.
+   */
   const filteredRows = React.useMemo(() => {
     if (!showOnlyUnreleased) return rows;
     return rows.filter(row => row.isPreorder && row.preorderStatus === 'unreleased');

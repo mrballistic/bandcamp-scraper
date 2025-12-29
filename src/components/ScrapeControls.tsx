@@ -21,26 +21,50 @@ import {
 import { Eye, EyeOff, Play, Trash2, HelpCircle, Copy, Check } from 'lucide-react';
 import { ScrapeProgress } from '../types/bandcamp';
 
+/**
+ * Props accepted by the scraper control panel. The callbacks are provided by
+ * the scraping hook and orchestrate the end-to-end flow.
+ */
 interface ScrapeControlsProps {
-  onStart: (cookie: string) => void;
+  onStart: (cookie: string, manualSlug?: string) => void;
   onReset: () => void;
   progress: ScrapeProgress;
 }
 
+/**
+ * Input and action panel that collects the Bandcamp cookie, offers guidance on
+ * how to find it, and kicks off or resets scraping. Also renders inline status
+ * indicators while scraping is in progress.
+ *
+ * @param onStart - Invoked with the sanitized cookie when the user hits "Scrape".
+ * @param onReset - Clears current data and any persisted storage.
+ * @param progress - Current scraper progress state for disabling controls and showing feedback.
+ */
 export default function ScrapeControls({ onStart, onReset, progress }: ScrapeControlsProps) {
   const [cookie, setCookie] = useState('');
+  const [usernameSlug, setUsernameSlug] = useState('');
   const [showCookie, setShowCookie] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const jsSnippet = `(() => { const c = document.cookie.split('; ').find(r => r.startsWith('identity=')); if (c) { copy(c.split('=')[1]); console.log('✅ Identity cookie copied!'); } else { console.error('❌ Cookie not found! Are you logged in to Bandcamp?'); } })();`;
 
+  /**
+   * Copies the helper JavaScript snippet to the clipboard and flashes a visual
+   * confirmation. Used by the help dialog to speed up cookie extraction.
+   */
   const copySnippet = () => {
     navigator.clipboard.writeText(jsSnippet);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
+  /**
+   * Normalizes the cookie string entered by the user into the format expected
+   * by the backend endpoints, attempting to salvage identity/session parts from
+   * varied formats (raw header, copied table row, or JSON). Passes the cleaned
+   * value to the `onStart` callback to initiate scraping.
+   */
   const handleStart = () => {
     let cleanCookie = cookie.trim();
     
@@ -75,7 +99,7 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
 
     if (cleanCookie) {
       console.log('Final cookie string length:', cleanCookie.length);
-      onStart(cleanCookie);
+      onStart(cleanCookie, usernameSlug.trim());
     }
   };
 
@@ -87,9 +111,9 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
         Configuration
       </Typography>
       
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', mb: 2 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'flex-start', mb: 2 }}>
         <TextField
-          fullWidth
+          sx={{ flex: '2 1 300px' }}
           label="Bandcamp Identity Cookie"
           variant="outlined"
           type={showCookie ? 'text' : 'password'}
@@ -117,6 +141,17 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
               </MuiLink>
             </Box>
           }
+        />
+
+        <TextField
+          sx={{ flex: '1 1 150px' }}
+          label="Username (Slug)"
+          variant="outlined"
+          value={usernameSlug}
+          onChange={(e) => setUsernameSlug(e.target.value)}
+          disabled={isScraping}
+          placeholder="e.g. mrballistic"
+          helperText="Optional: Speed up scrape by skipping auto-discovery"
         />
         
         <Box sx={{ display: 'flex', gap: 1 }}>

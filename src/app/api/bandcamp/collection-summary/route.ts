@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
 
+/**
+ * Validates the supplied Bandcamp identity/session cookie, reconstructs a
+ * well-formed header, and pulls lightweight fan context (fan ID, username,
+ * collection count). Acts as an authentication gate before deeper scraping.
+ *
+ * Request body:
+ * - `identityCookie`: Raw cookie string pasted by the user.
+ */
 export async function POST(request: Request) {
   try {
     const { identityCookie } = await request.json();
@@ -104,39 +112,31 @@ export async function POST(request: Request) {
         const blob = JSON.parse(blobMatch[1].replace(/&quot;/g, '"'));
         console.log('[Summary] Blob keys:', Object.keys(blob));
         
-        // Try different locations for user data
-        if (blob.fan_data) {
+        // Try different locations for user data (order matters - identities is on home page)
+        if (blob.identities?.fan) {
+          const fan = blob.identities.fan;
+          fanId = fanId || String(fan.id);
+          username = fan.name || fan.username || username;
+          usernameSlug = fan.username || '';
+          console.log('[Summary] Found identities.fan:', fan.username);
+        } else if (blob.fan_data) {
           fanId = fanId || String(blob.fan_data.fan_id);
           username = blob.fan_data.name || blob.fan_data.username || username;
-          usernameSlug = blob.fan_data.username || blob.fan_data.url || '';
+          usernameSlug = blob.fan_data.username || '';
           collectionCount = blob.fan_data.collection_count || 0;
-        } else if (blob.appData && blob.appData.identities) {
-          // Check identities for fan info
+          console.log('[Summary] Found fan_data:', blob.fan_data.username);
+        } else if (blob.appData?.identities?.fan) {
           const identity = blob.appData.identities.fan;
-          if (identity) {
-            fanId = fanId || String(identity.id);
-            username = identity.name || identity.username || username;
-            usernameSlug = identity.username || identity.url || '';
-            console.log(`[Summary] Found identity in appData:`, identity);
-          }
-        } else if (blob.pageContext) {
-          // Check pageContext for pageFan
-          console.log('[Summary] Checking pageContext.pageFan:', blob.pageContext.pageFan);
-          
-          if (blob.pageContext.pageFan) {
-            const pageFan = blob.pageContext.pageFan;
-            fanId = fanId || String(pageFan.fan_id || pageFan.id);
-            username = pageFan.name || pageFan.username || username;
-            usernameSlug = pageFan.username || pageFan.url || '';
-            collectionCount = pageFan.collection_count || pageFan.item_count || 0;
-          }
-        }
-        
-        // TEMPORARY: If we still don't have a username, use a known fallback
-        // TODO: Make this configurable in the UI
-        if (!usernameSlug && fanId === '56182211') {
-          usernameSlug = 'mrballistic';
-          console.log('[Summary] Using hardcoded username fallback for this fan ID');
+          fanId = fanId || String(identity.id);
+          username = identity.name || identity.username || username;
+          usernameSlug = identity.username || '';
+          console.log('[Summary] Found identity in appData:', identity.username);
+        } else if (blob.pageContext?.pageFan) {
+          const pageFan = blob.pageContext.pageFan;
+          fanId = fanId || String(pageFan.fan_id || pageFan.id || pageFan.pageFanId);
+          username = pageFan.name || pageFan.username || pageFan.pageFanUsername || username;
+          usernameSlug = pageFan.username || pageFan.pageFanUsername || '';
+          collectionCount = pageFan.collection_count || pageFan.item_count || 0;
         }
         
         console.log(`[Summary] Extracted: ${username} (ID: ${fanId}, Slug: "${usernameSlug}", Count: ${collectionCount})`);

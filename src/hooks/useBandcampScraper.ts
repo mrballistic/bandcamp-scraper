@@ -1,7 +1,12 @@
 import { useState, useCallback, useEffect } from 'react';
-import { PurchaseRow, ScrapeProgress } from '../types/bandcamp';
+import { PurchaseRow, ScrapeProgress, BandcampItem } from '../types/bandcamp';
 import { normalizeItem, deduplicateRows } from '../services/bandcamp.service';
 
+/**
+ * Custom hook that orchestrates the client-side scraping workflow. It manages
+ * normalized rows, progress tracking, persistence to localStorage, and exposes
+ * imperative actions to start or reset the scrape.
+ */
 export function useBandcampScraper() {
   const [rows, setRows] = useState<PurchaseRow[]>([]);
   const [progress, setProgress] = useState<ScrapeProgress>({
@@ -31,7 +36,16 @@ export function useBandcampScraper() {
     }
   }, [rows]);
 
-  const startScrape = useCallback(async (identityCookie: string) => {
+  /**
+   * Initiates the scraping process by validating the supplied cookie, fetching
+   * collection metadata, pulling visible items via puppeteer-backed API, then
+   * fetching hidden items via the Bandcamp JSON endpoint. Results are
+   * normalized, deduplicated, and stored in state/localStorage.
+   *
+   * @param identityCookie - Raw identity (and optionally session) cookie string from the user.
+   * @param manualSlug - Optional username slug provided by the user.
+   */
+  const startScrape = useCallback(async (identityCookie: string, manualSlug?: string) => {
     setProgress({ status: 'scraping', itemsFetched: 0, pagesFetched: 0 });
     setRows([]);
 
@@ -68,7 +82,7 @@ export function useBandcampScraper() {
         body: JSON.stringify({ 
           identityCookie: sessionCookie, 
           fanId,
-          usernameSlug 
+          usernameSlug: manualSlug || usernameSlug 
         }),
       });
 
@@ -89,6 +103,51 @@ export function useBandcampScraper() {
       allRows = [...allRows, ...newRows];
       
       setRows(deduplicateRows([...allRows]));
+
+      // 3. Hidden Items Scrape
+      console.log('Checking for hidden items...');
+      
+      let hiddenToken: string | null = null;
+      let moreHidden = true;
+      let hiddenCount = 0;
+
+      while (moreHidden) {
+          const hiddenRes: Response = await fetch('/api/bandcamp/hidden-items', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              identityCookie: sessionCookie, 
+              fanId,
+              olderThanToken: hiddenToken,
+              count: 100 
+            }),
+          });
+
+          const hiddenData = await hiddenRes.json();
+          if (!hiddenRes.ok || hiddenData.error) {
+              console.warn('Hidden items fetch warning:', hiddenData.error);
+              break; 
+          }
+
+          const items = hiddenData.items || [];
+          if (items.length === 0) {
+              moreHidden = false;
+          } else {
+              const hiddenRows = items.map((i: BandcampItem) => normalizeItem(i, true));
+              allRows = [...allRows, ...hiddenRows];
+              hiddenCount += items.length;
+              setRows(deduplicateRows([...allRows]));
+              
+              moreHidden = hiddenData.moreAvailable;
+              hiddenToken = hiddenData.nextOlderThanToken;
+              
+              // Small delay to be nice
+              await new Promise(r => setTimeout(r, 500));
+          }
+      }
+
+      console.log(`[Scraper] Found ${hiddenCount} hidden items`);
+
       setProgress({
         status: 'completed',
         itemsFetched: allRows.length,
@@ -107,6 +166,10 @@ export function useBandcampScraper() {
     }
   }, []);
 
+  /**
+   * Clears all scraped data and resets progress back to idle, also wiping any
+   * persisted rows stored in localStorage.
+   */
   const reset = useCallback(() => {
     setRows([]);
     setProgress({ status: 'idle', itemsFetched: 0, pagesFetched: 0 });

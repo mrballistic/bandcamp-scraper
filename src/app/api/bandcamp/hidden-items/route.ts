@@ -1,5 +1,16 @@
 import { NextResponse } from 'next/server';
 
+/**
+ * Fetches hidden items from the Bandcamp fan collection API. Accepts either an
+ * identity cookie string and fan ID, plus optional paging token/count, and
+ * proxies the request while normalizing the response shape for the client.
+ *
+ * Request body:
+ * - `identityCookie`: Raw identity (and optional session) cookie string.
+ * - `fanId`: Numeric Bandcamp fan identifier.
+ * - `olderThanToken`: Pagination token for fetching older hidden items.
+ * - `count`: Desired batch size (default 100).
+ */
 export async function POST(request: Request) {
   try {
     const { identityCookie, fanId, olderThanToken, count = 100 } = await request.json();

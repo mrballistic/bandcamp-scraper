@@ -14,6 +14,11 @@ import ReviewTable from '../components/ReviewTable';
 import ExportControls from '../components/ExportControls';
 import { Music } from 'lucide-react';
 
+/**
+ * Main landing page for the Bandcamp scraper. Wires together the scraping
+ * controls, review table, and export actions using the `useBandcampScraper`
+ * hook as the single source of truth.
+ */
 export default function Home() {
   const { rows, progress, startScrape, reset } = useBandcampScraper();
 

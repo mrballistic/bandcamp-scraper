@@ -1,9 +1,20 @@
 import { BandcampItem, PurchaseRow, PreorderStatus } from '../types/bandcamp';
 
 /**
- * Normalizes a raw Bandcamp item into a PurchaseRow.
+ * Converts a raw Bandcamp API item into the normalized `PurchaseRow` shape
+ * used by the UI and exporters.
+ *
+ * The function also:
+ * - Stabilizes the item type into a human readable label.
+ * - Builds a deterministic purchase key for deduplication.
+ * - Detects preorder status and fills in placeholder values.
+ * - Generates a thumbnail-friendly art URL (or a fallback if none exists).
+ *
+ * @param item - Raw Bandcamp item from either the collection or hidden items endpoints.
+ * @param isHidden - Whether the item came from the hidden items feed (affects the `isHidden` flag).
+ * @returns A fully-populated `PurchaseRow` ready for rendering or export.
  */
-export function normalizeItem(item: BandcampItem): PurchaseRow {
+export function normalizeItem(item: BandcampItem, isHidden = false): PurchaseRow {
   const itemTypeMap: Record<string, 'album' | 'track' | 'package' | 'unknown'> = {
     'a': 'album',
     't': 'track',
@@ -13,7 +24,8 @@ export function normalizeItem(item: BandcampItem): PurchaseRow {
   const itemType = itemTypeMap[item.item_type] || 'unknown';
   
   // Stable key: type:id:purchaseDate
-  const purchaseKey = `${item.item_type}:${item.item_id}:${item.purchase_date}`;
+  const purchaseDate = item.purchased || item.purchase_date || null;
+  const purchaseKey = `${item.item_type}:${item.item_id}:${purchaseDate || 'unknown'}`;
 
   // Preorder detection (Best-effort)
   const isPreorder = !!item.is_preorder;
@@ -37,7 +49,7 @@ export function normalizeItem(item: BandcampItem): PurchaseRow {
 
   return {
     purchaseKey,
-    purchaseDate: item.purchase_date,
+    purchaseDate,
     itemType,
     itemId: item.item_id,
     title: item.item_title,
@@ -47,11 +59,20 @@ export function normalizeItem(item: BandcampItem): PurchaseRow {
     isPreorder,
     preorderStatus,
     rawItem: item,
+    isHidden,
   };
 }
 
 /**
- * Deduplicates rows by purchaseKey.
+ * Removes duplicate purchase rows based on their computed `purchaseKey`.
+ *
+ * The rows are filtered in-place order, so the first occurrence of a key is
+ * retained while subsequent duplicates are discarded. This is useful when
+ * merging results from multiple Bandcamp sources (public collection + hidden
+ * items) that may overlap.
+ *
+ * @param rows - Array of purchase rows to deduplicate.
+ * @returns A new array containing only the first instance of each purchase key.
  */
 export function deduplicateRows(rows: PurchaseRow[]): PurchaseRow[] {
   const seen = new Set<string>();

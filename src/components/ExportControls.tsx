@@ -5,13 +5,30 @@ import { Box, Button, ButtonGroup, Typography } from '@mui/material';
 import { FileJson, FileSpreadsheet } from 'lucide-react';
 import { PurchaseRow } from '../types/bandcamp';
 
+/**
+ * Props for the export controls component. Consumers supply purchase rows and
+ * can optionally disable the buttons while long-running tasks are active.
+ */
 interface ExportControlsProps {
   rows: PurchaseRow[];
   disabled?: boolean;
 }
 
+/**
+ * Renders CSV/JSON export buttons alongside a brief status indicator. The
+ * component performs client-side serialization and download to avoid server
+ * round-trips.
+ *
+ * @param rows - Normalized purchase rows to serialize.
+ * @param disabled - When true, export buttons are disabled (e.g., during scraping).
+ */
 export default function ExportControls({ rows, disabled }: ExportControlsProps) {
   
+  /**
+   * Serializes the purchase rows to a CSV string and triggers a download with
+   * a date-stamped filename. Escapes quotes in text fields to preserve CSV
+   * structure.
+   */
   const exportToCSV = () => {
     if (rows.length === 0) return;
 
@@ -22,7 +39,8 @@ export default function ExportControls({ rows, disabled }: ExportControlsProps) 
       'Purchase Date',
       'Preorder Status',
       'Item URL',
-      'Art URL'
+      'Art URL',
+      'Hidden'
     ];
 
     const csvContent = [
@@ -34,7 +52,8 @@ export default function ExportControls({ rows, disabled }: ExportControlsProps) 
         row.purchaseDate || '',
         row.preorderStatus,
         row.itemUrl,
-        row.artUrl
+        row.artUrl,
+        row.isHidden ? 'Yes' : 'No'
       ].join(','))
     ].join('\n');
 
@@ -49,6 +68,10 @@ export default function ExportControls({ rows, disabled }: ExportControlsProps) 
     document.body.removeChild(link);
   };
 
+  /**
+   * Serializes the purchase rows plus light metadata into a readable JSON file
+   * and triggers a client-side download.
+   */
   const exportToJSON = () => {
     if (rows.length === 0) return;
 
