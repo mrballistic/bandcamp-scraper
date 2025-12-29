@@ -4,16 +4,14 @@ import { NextResponse } from 'next/server';
 const getBrowser = async () => {
   if (process.env.VERCEL_ENV || process.env.NODE_ENV === 'production') {
     // Vercel / Production
-    const chromium = await import('@sparticuz/chromium').then(mod => mod.default);
+    // Vercel / Production - Use minified version
+    const chromium = await import('@sparticuz/chromium-min').then(mod => mod.default);
     const puppeteerCore = await import('puppeteer-core').then(mod => mod.default);
     
-    // Optional: Graphics mode can sometimes cause issues in serverless
-    chromium.setGraphicsMode = false;
-    
     return puppeteerCore.launch({
-      args: [...chromium.args, '--font-render-hinting=none'],
+      args: chromium.args,
       defaultViewport: { width: 1280, height: 800 },
-      executablePath: await chromium.executablePath(),
+      executablePath: await chromium.executablePath('https://github.com/Sparticuz/chromium/releases/download/v132.0.0/chromium-v132.0.0-pack.tar'),
       headless: true,
     });
   } else {
