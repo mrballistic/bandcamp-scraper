@@ -22,18 +22,20 @@ export async function POST(request: Request) {
     }
 
     const data = await response.json();
-
-    // Data consists of a lot of things, we mainly want fan_id and username
-    // Note: Bandcamp might return a 200 with no fan_id if the cookie is invalid
-    if (!data.fan_id) {
-       return NextResponse.json({ error: 'Invalid or expired identity cookie' }, { status: 401 });
-    }
+    
+    // Log for debugging
+    console.log(`Summary response for ${data.username}:`, {
+      fan_id: data.fan_id,
+      collection_count: data.collection_count,
+      has_collection_data: !!data.collection_data
+    });
 
     return NextResponse.json({
       fanId: data.fan_id,
       username: data.username,
       name: data.name,
       collectionCount: data.collection_count,
+      raw: data // Include raw for debugging hidden fields
     });
   } catch (error) {
     console.error('Proxy summary error:', error);

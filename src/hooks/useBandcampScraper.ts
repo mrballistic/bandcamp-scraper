@@ -53,12 +53,19 @@ export function useBandcampScraper() {
         throw new Error(summaryData.error || 'Failed to authenticate');
       }
 
-      const { fanId } = summaryData;
-
-      let moreAvailable = true;
-      let olderThanToken = null;
+      const { fanId, collectionCount, raw } = summaryData;
+      
       let allRows: PurchaseRow[] = [];
       let pageCount = 0;
+      let moreAvailable = true;
+      let olderThanToken = null;
+
+      // Some versions of the API provide the initial token in the summary
+      if (raw && raw.collection_data && raw.collection_data.last_token) {
+        olderThanToken = raw.collection_data.last_token;
+      }
+
+      console.log(`Starting scrape for Fan ${fanId}. Total expected: ${collectionCount}`);
 
       // 2. Progressive Paging Loop
       while (moreAvailable) {
@@ -71,7 +78,16 @@ export function useBandcampScraper() {
         const data = await itemsRes.json();
 
         if (!itemsRes.ok) {
-          throw new Error(data.error || 'Failed to fetch items');
+          throw new Error(data.error || `Failed to fetch items (${itemsRes.status})`);
+        }
+
+        if (!data.items || !Array.isArray(data.items)) {
+          console.error('Unexpected items response:', data);
+          // If we have some rows, maybe just stop here instead of crashing
+          if (allRows.length > 0) {
+            break;
+          }
+          throw new Error('API returned no items. Your session might be restricted or some metadata is incorrect.');
         }
 
         const newRows = data.items.map(normalizeItem);
@@ -87,10 +103,10 @@ export function useBandcampScraper() {
           pagesFetched: pageCount,
         }));
 
-        moreAvailable = data.moreAvailable;
+        moreAvailable = data.moreAvailable && data.nextOlderThanToken;
         olderThanToken = data.nextOlderThanToken;
 
-        // Safety break to prevent infinite loops in case of API weirdness
+        // Safety break
         if (pageCount > 500) break; 
       }
 

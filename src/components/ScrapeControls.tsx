@@ -9,9 +9,16 @@ import {
   Paper, 
   LinearProgress,
   IconButton,
-  InputAdornment
+  InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Link as MuiLink,
+  Tooltip,
+  Divider
 } from '@mui/material';
-import { Eye, EyeOff, Play, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Play, Trash2, HelpCircle, Copy, Check } from 'lucide-react';
 import { ScrapeProgress } from '../types/bandcamp';
 
 interface ScrapeControlsProps {
@@ -23,10 +30,50 @@ interface ScrapeControlsProps {
 export default function ScrapeControls({ onStart, onReset, progress }: ScrapeControlsProps) {
   const [cookie, setCookie] = useState('');
   const [showCookie, setShowCookie] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const jsSnippet = `(() => { const c = document.cookie.split('; ').find(r => r.startsWith('identity=')); if (c) { copy(c.split('=')[1]); console.log('✅ Identity cookie copied!'); } else { console.error('❌ Cookie not found! Are you logged in to Bandcamp?'); } })();`;
+
+  const copySnippet = () => {
+    navigator.clipboard.writeText(jsSnippet);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const handleStart = () => {
-    if (cookie.trim()) {
-      onStart(cookie.trim());
+    let cleanCookie = cookie.trim();
+    
+    // Split by tab OR multiple spaces (handles different browser copy behaviors)
+    const parts = cleanCookie.split(/[\t\s]{2,}/);
+    
+    if (parts.length > 1) {
+      // Look for 'identity' name or just take the most likely candidate (the long random string)
+      const identityIdx = parts.findIndex(p => p.toLowerCase() === 'identity');
+      if (identityIdx !== -1 && parts[identityIdx + 1]) {
+        cleanCookie = parts[identityIdx + 1];
+      } else {
+        // Fallback: search for the part that looks like a token (long, includes base64 chars)
+        const tokenPart = parts.find(p => p.length > 20 && (p.includes('%') || p.includes('=')));
+        if (tokenPart) cleanCookie = tokenPart;
+      }
+    } 
+    // Handle 'identity=...' format
+    else if (cleanCookie.toLowerCase().includes('identity')) {
+      const matches = cleanCookie.match(/identity[=:\s]+([^;]+)/i);
+      if (matches && matches[1]) {
+        cleanCookie = matches[1].trim();
+      }
+    }
+
+    // Very important: Bandcamp cookies often copied from DevTools are already URL-encoded.
+    // We want the RAW value for the Cookie header proxy.
+    // If it contains %09 (encoded tab), we should keep it as-is OR decode it?
+    // Actually, Bandcamp's server handles the identity cookie which is token + tab + metadata.
+    // If we send it exactly as it appears in the Value column of DevTools, it usually works.
+
+    if (cleanCookie) {
+      onStart(cleanCookie);
     }
   };
 
@@ -51,13 +98,23 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
           InputProps={{
             endAdornment: (
               <InputAdornment position="end">
-                <IconButton onClick={() => setShowCookie(!showCookie)} edge="end">
+                <IconButton onClick={() => setShowCookie(!showCookie)} edge="end" title={showCookie ? "Hide cookie" : "Show cookie"}>
                   {showCookie ? <EyeOff size={20} /> : <Eye size={20} />}
+                </IconButton>
+                <IconButton onClick={() => setShowHelp(true)} edge="end" color="primary" title="How to find your cookie">
+                  <HelpCircle size={20} />
                 </IconButton>
               </InputAdornment>
             ),
           }}
-          helperText="Your cookie is never stored. It's only used to proxy requests to Bandcamp."
+          helperText={
+            <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              Your cookie is never stored. 
+              <MuiLink component="button" variant="caption" onClick={() => setShowHelp(true)} sx={{ ml: 1 }}>
+                Need help finding it?
+              </MuiLink>
+            </Box>
+          }
         />
         
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -136,6 +193,68 @@ export default function ScrapeControls({ onStart, onReset, progress }: ScrapeCon
           Error: {progress.error}
         </Typography>
       )}
+      <Dialog open={showHelp} onClose={() => setShowHelp(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <HelpCircle color="#1da1f2" />
+          How to find your Identity Cookie
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" paragraph color="textSecondary">
+            To scrape your collection, we need your Bandcamp session cookie. This stays in your browser and is only used to fetch your purchase list.
+          </Typography>
+          
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" gutterBottom fontWeight="bold">Option 1: The Manual Way (Most Reliable)</Typography>
+            <Typography variant="body2" component="div">
+              <ol style={{ paddingLeft: 20, margin: 0 }}>
+                <li>Open <MuiLink href="https://bandcamp.com" target="_blank" rel="noopener">bandcamp.com</MuiLink> and log in.</li>
+                <li>Right-click and select <strong>Inspect</strong> (or press F12).</li>
+                <li>Go to the <strong>Application</strong> tab (Chrome/Edge) or <strong>Storage</strong> tab (Firefox).</li>
+                <li>In the sidebar, select <strong>Cookies</strong> &gt; <code>https://bandcamp.com</code>.</li>
+                <li>Find <code>identity</code> in the list and copy its <strong>Value</strong>.</li>
+              </ol>
+            </Typography>
+          </Box>
+
+          <Divider sx={{ my: 2 }} />
+
+          <Box>
+            <Typography variant="subtitle2" gutterBottom fontWeight="bold">Option 2: The Console Way (Experimental)</Typography>
+            <Typography variant="body2" paragraph color="textSecondary" sx={{ fontSize: '0.75rem' }}>
+              Note: This may not work if your browser blocks JavaScript from reading session cookies (HttpOnly).
+            </Typography>
+            <Typography variant="body2" paragraph>
+              Paste this in the <strong>Console</strong> tab and press Enter:
+            </Typography>
+            <Paper 
+              variant="outlined" 
+              sx={{ 
+                p: 1.5, 
+                bgcolor: 'grey.900', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                fontFamily: 'monospace',
+                fontSize: '0.75rem',
+                border: '1px solid',
+                borderColor: 'divider'
+              }}
+            >
+              <Box sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', mr: 1 }}>
+                {jsSnippet}
+              </Box>
+              <Tooltip title={copied ? "Copied!" : "Copy code"}>
+                <IconButton size="small" onClick={copySnippet}>
+                  {copied ? <Check size={18} color="green" /> : <Copy size={18} />}
+                </IconButton>
+              </Tooltip>
+            </Paper>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowHelp(false)} color="primary">Got it</Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }
